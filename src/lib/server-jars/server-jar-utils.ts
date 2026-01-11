@@ -81,7 +81,11 @@ export const fetchManualDetailsFor = async (platform: string, version: string) =
 
 const PAPERMC_API_URL = "https://api.papermc.io/v2/projects"
 
-export const fetchPaperMcVersionsFor = async (platform: string) => (await (await fetch(`${PAPERMC_API_URL}/${platform}`)).json()).versions.reverse()
+export const fetchPaperMcVersionsFor = async (platform: string) => {
+    const versions = (await (await fetch(`${PAPERMC_API_URL}/${platform}`)).json()).versions.reverse()
+    // Filter to only include stable versions (no pre-releases)
+    return versions.filter((v: string) => !v.includes('pre') && !v.includes('rc'))
+}
 
 export const fetchPaperMcDetailsFor = async (platform: string, version: string) => {
     const url = `${PAPERMC_API_URL}/${platform}/versions/${version}`;
