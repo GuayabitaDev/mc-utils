@@ -13,9 +13,9 @@ export const fetchDetailsFor = async (platform: string, version: string) => awai
 const handleVersion = async (version: string, versions: string[]) => version.toLowerCase() === "latest" ? findLatestVersion(versions) : version
 
 const handle = async (handleVersions: boolean, platform: string, version: string | null) => {
-    let versions
+let versions
 
-    switch (platform.toLowerCase()) {
+switch (platform.toLowerCase()) {
         case "paper":
         case "waterfall":
         case "velocity":
@@ -77,22 +77,66 @@ export const fetchManualDetailsFor = async (platform: string, version: string) =
 
 // End Manual Platforms
 
-// Start PaperMC Platforms 
+// Start PaperMC Platforms
 
 const PAPERMC_API_URL = "https://api.papermc.io/v2/projects"
 
-export const fetchPaperMcVersionsFor = async (platform: string) => (await (await fetch(`${PAPERMC_API_URL}/${platform}`)).json()).versions.reverse()
+export const fetchPaperMcVersionsFor = async (platform: string) => {
+    const data = await (await fetch(`${PAPERMC_API_URL}/${platform}`)).json()
+    const versions: string[] = Array.isArray(data.versions) ? data.versions.reverse() : []
+
+    const validated = await Promise.all(versions.map(async (v: string) => {
+        try {
+            const url = `${PAPERMC_API_URL}/${platform}/versions/${v}`
+            const versionData = await (await fetch(url)).json()
+            const builds: number[] = Array.isArray(versionData.builds) ? versionData.builds : []
+            if (builds.length === 0) return null
+
+            // use latest build (last element)
+            const latestBuild = builds[builds.length - 1]
+            const buildData = await (await fetch(`${url}/builds/${latestBuild}`)).json()
+
+            const hasDownload = Boolean(buildData?.downloads?.application?.name)
+            const hasTime = Boolean(buildData?.time)
+
+            return hasDownload && hasTime ? v : null
+        } catch {
+            return null
+        }
+    }))
+
+    return validated.filter((x): x is string => !!x)
+}
 
 export const fetchPaperMcDetailsFor = async (platform: string, version: string) => {
-    const url = `${PAPERMC_API_URL}/${platform}/versions/${version}`;
-    const response = await (await fetch(`${url}/builds/${(await (await fetch(url)).json()).builds.reverse()[0]}`)).json()
-    return {
-        platform: response.project_id,
-        display: response.project_name,
-        version: response.version,
-        release: formatDate(new Date(response.time)),
-        downloadUrl: `${url}/builds/${response.build}/downloads/${response.downloads.application.name}`
+    const url = `${PAPERMC_API_URL}/${platform}/versions/${version}`
+    const versionData = await (await fetch(url)).json()
+    const builds: number[] = Array.isArray(versionData.builds) ? versionData.builds : []
+
+    if (builds.length === 0) {
+        throw new Error(`No builds found for ${platform} ${version}`)
     }
+
+    // iterate from newest to oldest to find first valid build with download & time
+    for (let i = builds.length - 1; i >= 0; i--) {
+        const buildNum = builds[i]
+        const buildData = await (await fetch(`${url}/builds/${buildNum}`)).json()
+
+        const downloadName = buildData?.downloads?.application?.name
+        const time = buildData?.time
+
+        if (downloadName && time) {
+            return {
+                platform: platform.toLowerCase(),
+                display: platform.charAt(0).toUpperCase() + platform.slice(1),
+                version: version,
+                release: formatDate(new Date(time)),
+                downloadUrl: `${url}/builds/${buildNum}/downloads/application/${downloadName}`
+            }
+        }
+    }
+
+    throw new Error(`No valid build with download/time found for ${platform} ${version}`)
 }
 
 // End PaperMC Platforms
